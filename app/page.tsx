@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type View = "start" | "product" | "budget" | "record";
 type Category = "抽纸" | "成人尿片";
@@ -45,6 +45,28 @@ export default function Home() {
   const [finance, setFinance] = useState({ price: "", cost: "", shipping: "", feeRate: "", refundRate: "", budget: "" });
   const [draft, setDraft] = useState<DailyRow>({ date: "", visitors: "", orders: "", revenue: "", spend: "" });
   const [rows, setRows] = useState<DailyRow[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("daily-growth-coach-v1");
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.platform) setPlatform(data.platform);
+        if (data.category) setCategory(data.category);
+        if (Array.isArray(data.done)) setDone(data.done);
+        if (data.facts) setFacts(data.facts);
+        if (data.finance) setFinance(data.finance);
+        if (Array.isArray(data.rows)) setRows(data.rows);
+      }
+    } catch { /* ignore damaged local data */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem("daily-growth-coach-v1", JSON.stringify({ platform, category, done, facts, finance, rows }));
+  }, [category, done, facts, finance, hydrated, platform, rows]);
 
   function flash(message: string) {
     setNotice(message);

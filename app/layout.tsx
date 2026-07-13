@@ -6,14 +6,15 @@ export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const title = "营业额助手｜新手电商经营工作台";
-  const description = "根据售价、成本、访客、订单和推广花费，生成每日经营任务、保本投放线、商品诊断与营业额复盘。";
+  const image = `${protocol}://${host}/og-daily-coach.png`;
+  const title = "日用增长教练｜抽纸与成人尿片新店助手";
+  const description = "没有经营数据也能开始：完成7天启动计划、商品页事实清单、保本预算，并从第一天积累真实数据。";
   return {
     title,
     description,
     metadataBase: new URL(`${protocol}://${host}`),
-    openGraph: { title, description, type: "website", locale: "zh_CN" },
-    twitter: { card: "summary", title, description },
+    openGraph: { title, description, type: "website", locale: "zh_CN", images: [{ url: image, width: 1200, height: 630, alt: "日用增长教练" }] },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
   };
 }
 

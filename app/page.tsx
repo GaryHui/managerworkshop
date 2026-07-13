@@ -9,6 +9,7 @@ type DailyRow = { date: string; visitors: string; orders: string; revenue: strin
 const money = (value: number) => new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 1 }).format(value);
 const n = (value: string) => Math.max(0, Number(value) || 0);
 const pct = (top: number, bottom: number) => bottom ? top / bottom * 100 : 0;
+const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date());
 
 const plans = [
   ["DAY 1", "确定一个主推商品", "不要同时推广全店。先选抽纸或成人尿片中的一个具体规格，作为7天主推款。", "选定主推款"],
@@ -43,7 +44,7 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [facts, setFacts] = useState({ brand: "", material: "", spec: "", count: "", scene: "", proof: "" });
   const [finance, setFinance] = useState({ price: "", cost: "", shipping: "", feeRate: "", refundRate: "", budget: "" });
-  const [draft, setDraft] = useState<DailyRow>({ date: "", visitors: "", orders: "", revenue: "", spend: "" });
+  const [draft, setDraft] = useState<DailyRow>({ date: today(), visitors: "", orders: "", revenue: "", spend: "" });
   const [rows, setRows] = useState<DailyRow[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
@@ -84,11 +85,13 @@ export default function Home() {
     const shipping = n(finance.shipping);
     const feeRate = n(finance.feeRate) / 100;
     const refundRate = n(finance.refundRate) / 100;
+    const budget = n(finance.budget);
     const contribution = price * (1 - feeRate) - cost - shipping;
     const maxCac = Math.max(0, contribution * (1 - refundRate));
     const breakEvenRoas = maxCac ? price / maxCac : 0;
+    const testCap = budget > 0 && maxCac > 0 ? Math.min(budget, maxCac) : maxCac;
     const ready = price > 0 && cost > 0;
-    return { price, contribution, maxCac, breakEvenRoas, ready };
+    return { price, budget, contribution, maxCac, breakEvenRoas, testCap, ready };
   }, [finance]);
 
   const realReport = useMemo(() => {
@@ -110,8 +113,19 @@ export default function Home() {
     if (!draft.date) return flash("请先选择日期");
     if (![draft.visitors, draft.orders, draft.revenue, draft.spend].some((value) => value !== "")) return flash("请至少填写一个真实数据");
     setRows((current) => [...current.filter((row) => row.date !== draft.date), draft].sort((a, b) => a.date.localeCompare(b.date)));
-    setDraft({ date: "", visitors: "", orders: "", revenue: "", spend: "" });
+    setDraft({ date: today(), visitors: "", orders: "", revenue: "", spend: "" });
     flash("已加入真实经营记录");
+  }
+
+  function editRecord(row: DailyRow) {
+    setDraft(row);
+    flash(`已载入 ${row.date}，修改后再次加入即可覆盖`);
+  }
+
+  function removeRecord(date: string) {
+    if (!window.confirm(`确定删除 ${date} 的经营记录吗？此操作无法撤销。`)) return;
+    setRows((current) => current.filter((row) => row.date !== date));
+    flash(`已删除 ${date} 的记录`);
   }
 
   const nav: { id: View; no: string; label: string }[] = [
@@ -150,13 +164,13 @@ export default function Home() {
 
       {view === "budget" && <>
         <section className="section-intro"><div><span>先算利润再买流量</span><h2>没有正毛利，就不建议投广告</h2><p>只填真实成本。计算结果是测试上限，不是平台承诺。</p></div></section>
-        <section className="budget-layout"><article className="panel fact-card"><span>商品成本</span><h3>{category}主推款</h3><div className="fact-fields finance-fields">{([ ["price", "售价"], ["cost", "进货成本"], ["shipping", "运费和包装"], ["feeRate", "平台扣点（%）"], ["refundRate", "预计退款率（%）"], ["budget", "最多能测试多少钱"] ] as [keyof typeof finance, string][]).map(([key, label]) => <label key={key}>{label}<input type="number" min="0" value={finance[key]} onChange={(e) => setFinance({ ...finance, [key]: e.target.value })}/></label>)}</div></article><div className="budget-results">{margin.ready ? <><article className={`margin-result ${margin.contribution > 0 ? "safe" : "loss"}`}><span>每单广告前毛利</span><strong>{money(margin.contribution)}</strong><p>{margin.contribution > 0 ? "可以进入小预算测试，但仍需考虑退款影响。" : "售价不足以覆盖当前成本，请先调整商品结构。"}</p></article><div className="mini-results"><article><span>保本获客成本</span><strong>{money(margin.maxCac)}</strong><small>一个订单最多可承担</small></article><article><span>保本投产比</span><strong>{margin.breakEvenRoas.toFixed(2)}</strong><small>低于此值会亏损</small></article></div><article className="panel stop-card"><span>测试停止线</span><h3>{margin.maxCac > 0 ? `单个测试花费达到 ${money(margin.maxCac)} 仍无订单，停止。` : "当前不建议启动付费推广。"}</h3><p>不要同时测试多个商品、多个主图和多个价格。先选一个精准搜索词或一张素材，记录结果。</p></article></> : <section className="empty-state panel"><div>算</div><span>等待真实成本</span><h2>填写售价和进货成本</h2><p>不再使用任何示例数字；你填写后才会生成保本线。</p></section>}</div></section>
+        <section className="budget-layout"><article className="panel fact-card"><span>商品成本</span><h3>{category}主推款</h3><div className="fact-fields finance-fields">{([ ["price", "售价"], ["cost", "进货成本"], ["shipping", "运费和包装"], ["feeRate", "平台扣点（%）"], ["refundRate", "预计退款率（%）"], ["budget", "最多能测试多少钱"] ] as [keyof typeof finance, string][]).map(([key, label]) => <label key={key}>{label}<input type="number" min="0" value={finance[key]} onChange={(e) => setFinance({ ...finance, [key]: e.target.value })}/></label>)}</div></article><div className="budget-results">{margin.ready ? <><article className={`margin-result ${margin.contribution > 0 ? "safe" : "loss"}`}><span>每单广告前毛利</span><strong>{money(margin.contribution)}</strong><p>{margin.contribution > 0 ? "可以进入小预算测试，但仍需考虑退款影响。" : "售价不足以覆盖当前成本，请先调整商品结构。"}</p></article><div className="mini-results"><article><span>保本获客成本</span><strong>{money(margin.maxCac)}</strong><small>一个订单最多可承担</small></article><article><span>保本投产比</span><strong>{margin.breakEvenRoas.toFixed(2)}</strong><small>低于此值会亏损</small></article></div><article className="panel stop-card"><span>本轮测试停止线</span><h3>{margin.testCap > 0 ? `本轮最多花 ${money(margin.testCap)}；仍无订单就停止。` : "当前不建议启动付费推广。"}</h3><p>{margin.budget > 0 && margin.maxCac > 0 ? `你填写的总预算是 ${money(margin.budget)}。${margin.budget > margin.maxCac ? "第一轮不要一次花完，剩余预算等复盘后再决定。" : "预算低于保本获客成本，先以预算金额作为停止线。"}` : "填写测试预算后，系统会取预算与保本获客成本中较低的金额作为本轮停止线。"}</p></article></> : <section className="empty-state panel"><div>算</div><span>等待真实成本</span><h2>填写售价和进货成本</h2><p>不再使用任何示例数字；你填写后才会生成保本线。</p></section>}</div></section>
       </>}
 
       {view === "record" && <>
         <section className="section-intro"><div><span>从第一天建立证据</span><h2>每天记录5个真实数字</h2><p>数据少也没关系。先形成连续记录，7天后再判断客流还是转化有问题。</p></div></section>
         <section className="record-entry panel"><div className="record-fields"><label>日期<input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })}/></label><label>访客<input type="number" min="0" value={draft.visitors} onChange={(e) => setDraft({ ...draft, visitors: e.target.value })}/></label><label>订单<input type="number" min="0" value={draft.orders} onChange={(e) => setDraft({ ...draft, orders: e.target.value })}/></label><label>营业额<input type="number" min="0" value={draft.revenue} onChange={(e) => setDraft({ ...draft, revenue: e.target.value })}/></label><label>广告花费<input type="number" min="0" value={draft.spend} onChange={(e) => setDraft({ ...draft, spend: e.target.value })}/></label><button onClick={addRecord}>加入记录</button></div></section>
-        {rows.length ? <><section className="real-summary"><article><span>真实访客</span><strong>{realReport.visitors}</strong></article><article><span>真实订单</span><strong>{realReport.orders}</strong></article><article><span>支付转化率</span><strong>{realReport.conversion.toFixed(2)}%</strong></article><article><span>广告投产</span><strong>{realReport.roas.toFixed(2)}</strong></article></section><section className="panel real-diagnosis"><span>当前仅基于已录入数据</span><h2>{realReport.diagnosis}</h2><p>累计营业额 {money(realReport.revenue)}，广告花费 {money(realReport.spend)}。达到7天前只做观察，不轻易下结论。</p></section><section className="panel record-table"><table><thead><tr><th>日期</th><th>访客</th><th>订单</th><th>营业额</th><th>广告花费</th></tr></thead><tbody>{rows.map((row) => <tr key={row.date}><td>{row.date}</td><td>{row.visitors || "—"}</td><td>{row.orders || "—"}</td><td>{row.revenue || "—"}</td><td>{row.spend || "—"}</td></tr>)}</tbody></table></section></> : <section className="empty-state panel"><div>真</div><span>没有虚构数据</span><h2>你的第一条记录会从这里开始</h2><p>商品发布后，每天从卖家后台抄录访客、订单、营业额和广告花费。工具不会在没有数据时生成经营结论。</p></section>}
+        {rows.length ? <><section className="real-summary"><article><span>真实访客</span><strong>{realReport.visitors}</strong></article><article><span>真实订单</span><strong>{realReport.orders}</strong></article><article><span>支付转化率</span><strong>{realReport.conversion.toFixed(2)}%</strong></article><article><span>广告投产</span><strong>{realReport.roas.toFixed(2)}</strong></article></section><section className="panel real-diagnosis"><span>当前仅基于已录入数据</span><h2>{realReport.diagnosis}</h2><p>累计营业额 {money(realReport.revenue)}，广告花费 {money(realReport.spend)}。达到7天前只做观察，不轻易下结论。</p></section><section className="panel record-table"><table><thead><tr><th>日期</th><th>访客</th><th>订单</th><th>营业额</th><th>广告花费</th><th>操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.date}><td>{row.date}</td><td>{row.visitors || "—"}</td><td>{row.orders || "—"}</td><td>{row.revenue || "—"}</td><td>{row.spend || "—"}</td><td><div className="record-actions"><button onClick={() => editRecord(row)}>修改</button><button className="danger" onClick={() => removeRecord(row.date)}>删除</button></div></td></tr>)}</tbody></table></section></> : <section className="empty-state panel"><div>真</div><span>没有虚构数据</span><h2>你的第一条记录会从这里开始</h2><p>商品发布后，每天从卖家后台抄录访客、订单、营业额和广告花费。工具不会在没有数据时生成经营结论。</p></section>}
       </>}
       <footer><span>建议基于商品事实和你录入的真实数据，不保证销售结果。</span><span>抽纸与成人尿片的规格、功效和检测信息必须如实填写。</span></footer>
     </main>

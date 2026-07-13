@@ -6,14 +6,14 @@ export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const image = `${protocol}://${host}/og.png`;
-  const title = "链接势能｜商品链接竞争力诊断";
-  const description = "从商品发布时间、累计销量与销售速度，判断客流形成原因并生成可执行的链接改进建议。";
+  const title = "营业额助手｜新手电商经营工作台";
+  const description = "根据售价、成本、访客、订单和推广花费，生成每日经营任务、保本投放线、商品诊断与营业额复盘。";
   return {
     title,
     description,
-    openGraph: { title, description, type: "website", locale: "zh_CN", images: [{ url: image, width: 1200, height: 630, alt: "链接势能商品竞争力诊断" }] },
-    twitter: { card: "summary_large_image", title, description, images: [image] },
+    metadataBase: new URL(`${protocol}://${host}`),
+    openGraph: { title, description, type: "website", locale: "zh_CN" },
+    twitter: { card: "summary", title, description },
   };
 }
 

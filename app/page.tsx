@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type View = "create" | "audit" | "package" | "launch";
+type View = "create" | "audit" | "package" | "launch" | "diagnose";
 type Category = "抽纸" | "成人尿片" | "其他日用品";
 type Product = {
   url: string; platform: string; category: Category; title: string; brand: string;
@@ -10,6 +10,7 @@ type Product = {
   price: string; cost: string; shipping: string; proof: string; pain: string;
 };
 type InspectResult = { status?: string; message?: string; platform?: string; title?: string; price?: string; productId?: string };
+type Traffic = { indexed: "unknown" | "yes" | "no"; impressions: string; clicks: string; carts: string; orders: string; spend: string };
 
 const emptyProduct: Product = {
   url: "", platform: "", category: "抽纸", title: "", brand: "", material: "",
@@ -55,15 +56,17 @@ export default function Home() {
   const [done, setDone] = useState<number[]>([]);
   const [notice, setNotice] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [traffic, setTraffic] = useState<Traffic>({ indexed: "unknown", impressions: "", clicks: "", carts: "", orders: "", spend: "" });
 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("listing-growth-agent-v1");
       if (saved) {
-        const data = JSON.parse(saved) as { product?: Product; done?: number[]; generated?: boolean };
+        const data = JSON.parse(saved) as { product?: Product; done?: number[]; generated?: boolean; traffic?: Traffic };
         if (data.product) setProduct({ ...emptyProduct, ...data.product });
         if (Array.isArray(data.done)) setDone(data.done);
         if (data.generated) setGenerated(true);
+        if (data.traffic) setTraffic((current) => ({ ...current, ...data.traffic }));
       }
     } catch { /* damaged device draft is ignored */ }
     setHydrated(true);
@@ -71,8 +74,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem("listing-growth-agent-v1", JSON.stringify({ product, done, generated }));
-  }, [done, generated, hydrated, product]);
+    window.localStorage.setItem("listing-growth-agent-v1", JSON.stringify({ product, done, generated, traffic }));
+  }, [done, generated, hydrated, product, traffic]);
 
   function flash(message: string) {
     setNotice(message);
@@ -147,6 +150,30 @@ export default function Home() {
     ["保留赢家", "记录曝光、点击、订单和退款原因", "有提升才保留；无提升恢复上一版本"],
   ];
 
+  const impressions = n(traffic.impressions);
+  const clicks = n(traffic.clicks);
+  const carts = n(traffic.carts);
+  const orders = n(traffic.orders);
+  const spend = n(traffic.spend);
+  const ctr = impressions ? clicks / impressions * 100 : 0;
+  const cartRate = clicks ? carts / clicks * 100 : 0;
+  const orderRate = clicks ? orders / clicks * 100 : 0;
+  const cac = orders ? spend / orders : 0;
+  const keywordIdeas = [
+    [product.category, product.material, product.spec, product.count].filter(Boolean).join(" "),
+    [product.category, product.audience, product.scene].filter(Boolean).join(" "),
+    [product.category, product.pain || guide.questions[0], product.count].filter(Boolean).join(" "),
+  ].filter((item, index, all) => item && all.indexOf(item) === index);
+  const trafficDiagnosis = (() => {
+    if (traffic.indexed === "no") return { level: "阻断", title: "先解决搜索收录", detail: "用完整商品标题在平台搜索；若仍找不到，优先检查类目、属性、违规词和商品状态，暂时不要继续改主图。", action: "修复类目与属性后，24小时后再次检查收录" };
+    if (!impressions) return { level: "待采样", title: "还不能判断是标题还是主图", detail: "没有真实曝光时，点击率为零没有诊断意义。先用3个精确长尾词获取第一批可测曝光。", action: "每个词只投一个小测试单元，先获得真实曝光" };
+    if (impressions < 100) return { level: "样本不足", title: "已经有曝光，但样本还太少", detail: `当前 ${impressions} 次曝光不足以稳定判断。先保持标题、主图和价格不变，继续积累样本。`, action: "累计到至少100次实验曝光再判断点击表现" };
+    if (!clicks || ctr < 1) return { level: "点击阻塞", title: "用户看到了，但没有被主图和标题说服", detail: `当前实验点击率 ${ctr.toFixed(2)}%。优先重做首图的信息层级，并把真实规格和数量前移。`, action: "只替换主图，保持关键词、价格和SKU不变" };
+    if (clicks >= 10 && !carts) return { level: "兴趣阻塞", title: "有人点击，但购买理由不够清楚", detail: `已有 ${clicks} 次点击但没有加购。重点核对尺寸、抽数、包数、每包单价和消费者最担心的问题。`, action: "只补一张规格对比图或修改SKU表达" };
+    if (carts && !orders) return { level: "成交阻塞", title: "用户有兴趣，但在付款前犹豫", detail: `已有 ${carts} 次加购但没有成交。优先检查到手价、运费、评价基础、发货承诺和售后说明。`, action: "只测试到手价或售后承诺其中一项" };
+    return { level: "可放大", title: "漏斗已经产生真实成交信号", detail: `实验点击率 ${ctr.toFixed(2)}%，点击成交率 ${orderRate.toFixed(2)}%${orders ? `，获客成本 ${money(cac)}` : ""}。`, action: margin > 0 && cac > margin ? "获客成本高于单笔空间，先降成本再放量" : "保留当前赢家，小幅扩大同一流量入口" };
+  })();
+
   function generatePackage() {
     if (!ready) return flash("请先选择平台，并填写规格、数量和售价");
     setGenerated(true);
@@ -159,6 +186,7 @@ export default function Home() {
     { id: "audit", no: "02", label: "发布检查" },
     { id: "package", no: "03", label: "上架包" },
     { id: "launch", no: "04", label: "7天流量实验" },
+    { id: "diagnose", no: "05", label: "真实流量诊断" },
   ];
 
   return <div className="product-shell listing-shell">
@@ -221,6 +249,37 @@ export default function Home() {
         <section className="launch-head"><div><span>冷启动不是等平台扶持</span><h2>7天只验证一个变量</h2><p>先获得第一批真实曝光、点击和订单，再决定是否追加投入。</p></div><strong>{done.length}/7</strong></section>
         <section className="panel experiment-list">{launchPlan.map((item, index) => <article key={item[0]} className={done.includes(index) ? "done" : ""}><button onClick={() => setDone((current) => current.includes(index) ? current.filter((value) => value !== index) : [...current, index])}>{done.includes(index) ? "✓" : index + 1}</button><div><span>DAY {index + 1} · {item[0]}</span><h3>{item[1]}</h3><p>{item[2]}</p></div></article>)}</section>
         <section className="launch-rules"><article><span>继续条件</span><strong>曝光、点击或订单至少一项改善</strong><p>保留有效变量，小幅扩大。</p></article><article><span>停止条件</span><strong>{margin > 0 ? `单轮花费达到 ${money(margin)} 仍无订单` : "利润边界不清楚"}</strong><p>停止追加，不用总预算追亏损。</p></article><article><span>真实归因</span><strong>一轮只改一个变量</strong><p>否则无法知道增长来自哪里。</p></article></section>
+      </>}
+
+      {view === "diagnose" && <>
+        <section className="diagnose-hero">
+          <div><span>REAL FUNNEL DIAGNOSIS</span><h2>先定位流量卡在哪一层</h2><p>只填写商家后台真实看到的数据。工具不猜搜索量、不伪造排名，也不把通用阈值说成平台规则。</p></div>
+          <div className="diagnosis-result"><b>{trafficDiagnosis.level}</b><h3>{trafficDiagnosis.title}</h3><p>{trafficDiagnosis.detail}</p><strong>下一步：{trafficDiagnosis.action}</strong></div>
+        </section>
+
+        <section className="diagnose-layout">
+          <article className="panel funnel-input"><div className="panel-head"><div><span>真实数据输入</span><h3>建议填写同一商品、同一轮测试的累计数据</h3></div><b>本机保存</b></div>
+            <div className="funnel-fields">
+              <label>完整标题能否搜到<select value={traffic.indexed} onChange={(e) => setTraffic((current) => ({ ...current, indexed: e.target.value as Traffic["indexed"] }))}><option value="unknown">还没检查</option><option value="yes">可以搜到</option><option value="no">完全搜不到</option></select></label>
+              <label>曝光次数<input type="number" min="0" value={traffic.impressions} onChange={(e) => setTraffic((current) => ({ ...current, impressions: e.target.value }))} placeholder="商家后台数据"/></label>
+              <label>点击次数<input type="number" min="0" value={traffic.clicks} onChange={(e) => setTraffic((current) => ({ ...current, clicks: e.target.value }))} placeholder="商品点击"/></label>
+              <label>收藏/加购<input type="number" min="0" value={traffic.carts} onChange={(e) => setTraffic((current) => ({ ...current, carts: e.target.value }))} placeholder="合计也可以"/></label>
+              <label>支付订单<input type="number" min="0" value={traffic.orders} onChange={(e) => setTraffic((current) => ({ ...current, orders: e.target.value }))} placeholder="真实支付订单"/></label>
+              <label>本轮花费<input type="number" min="0" value={traffic.spend} onChange={(e) => setTraffic((current) => ({ ...current, spend: e.target.value }))} placeholder="没有付费填0"/></label>
+            </div>
+            <small>诊断阈值仅用于这一轮实验决策，不代表淘宝、拼多多、抖店等平台的官方标准。</small>
+          </article>
+
+          <aside className="panel funnel-summary"><span>漏斗结果</span><div><small>曝光 → 点击</small><strong>{impressions ? `${ctr.toFixed(2)}%` : "待数据"}</strong></div><div><small>点击 → 加购</small><strong>{clicks ? `${cartRate.toFixed(2)}%` : "待数据"}</strong></div><div><small>点击 → 成交</small><strong>{clicks ? `${orderRate.toFixed(2)}%` : "待数据"}</strong></div><div><small>单笔获客成本</small><strong>{orders ? money(cac) : "待订单"}</strong></div></aside>
+        </section>
+
+        <section className="keyword-lab">
+          <article className="panel keyword-experiments"><div className="panel-head"><div><span>冷启动关键词</span><h3>先用精确长尾词获得第一批可诊断曝光</h3></div><button onClick={() => navigator.clipboard.writeText(keywordIdeas.join("\n")).then(() => flash("关键词已复制"))}>复制全部</button></div>
+            <div>{keywordIdeas.map((word, index) => <article key={word}><i>0{index + 1}</i><div><b>{index === 0 ? "商品规格词" : index === 1 ? "人群场景词" : "顾虑解决词"}</b><p>{word}</p></div></article>)}</div>
+            {!generated && <small>先在“创建商品”填写真实规格并生成方案，关键词才会更准确。</small>}
+          </article>
+          <article className="panel one-variable"><span>一次只改一个变量</span><h3>推荐测试顺序</h3><ol><li>先确认完整标题可以搜到</li><li>固定价格和SKU，测试一个关键词入口</li><li>有曝光没点击，只换主图</li><li>有点击没加购，只补规格与购买理由</li><li>有加购没成交，只测价格或信任承诺</li></ol><p>每轮记录开始时间和结束时间，避免把自然波动误判成优化效果。</p></article>
+        </section>
       </>}
 
       <footer><span>工具优化商品获得流量与成交的条件，不保证平台分发或销售结果。</span><span>当前方案保存在本设备；商品事实与功效必须由卖家核对。</span></footer>

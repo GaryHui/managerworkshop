@@ -8,6 +8,7 @@ type Product = {
   url: string; platform: string; category: Category; title: string; brand: string;
   material: string; spec: string; count: string; audience: string; scene: string;
   price: string; cost: string; shipping: string; proof: string; pain: string;
+  feeRate: string; adCost: string; targetProfit: string; extraShipping: string;
 };
 type InspectResult = { status?: string; message?: string; platform?: string; title?: string; price?: string; productId?: string };
 type Traffic = { indexed: "unknown" | "yes" | "no"; impressions: string; clicks: string; carts: string; orders: string; spend: string };
@@ -15,7 +16,8 @@ type Traffic = { indexed: "unknown" | "yes" | "no"; impressions: string; clicks:
 const emptyProduct: Product = {
   url: "", platform: "", category: "抽纸", title: "", brand: "", material: "",
   spec: "", count: "", audience: "家庭日常使用", scene: "家庭囤货", price: "",
-  cost: "", shipping: "", proof: "", pain: "",
+  cost: "", shipping: "", proof: "", pain: "", feeRate: "", adCost: "",
+  targetProfit: "", extraShipping: "",
 };
 
 const categoryData: Record<Category, {
@@ -105,7 +107,7 @@ export default function Home() {
   }
 
   const knownFacts = useMemo(() => [product.platform, product.category, product.material, product.spec, product.count, product.audience, product.price].filter((value) => value.trim()).length, [product]);
-  const margin = n(product.price) - n(product.cost) - n(product.shipping);
+  const margin = n(product.price) * (1 - Math.min(50, n(product.feeRate)) / 100) - n(product.cost) - n(product.shipping) - n(product.adCost);
   const ready = Boolean(product.platform && product.spec && product.count && n(product.price) > 0);
   const guide = categoryData[product.category];
 
@@ -123,22 +125,36 @@ export default function Home() {
     { label: "平台与类目", pass: Boolean(product.platform && product.category), detail: product.platform ? `${product.platform} · ${product.category}` : "还未选择首发平台" },
     { label: "核心规格", pass: Boolean(product.spec && product.count), detail: product.spec && product.count ? `${product.spec} · ${product.count}` : "规格和数量必须同时填写" },
     { label: "搜索相关性", pass: titles[0]?.includes(product.category) && titles[0]?.length >= 12, detail: titles[0] || "生成后检查标题" },
-    { label: "利润边界", pass: n(product.cost) > 0 && margin > 0, detail: n(product.cost) ? `广告前每单余量 ${money(margin)}` : "未填写进货成本，不能判断是否值得推广" },
+    { label: "利润边界", pass: n(product.cost) > 0 && margin > 0, detail: n(product.cost) ? `扣除已填写成本后每单余量 ${money(margin)}` : "未填写进货成本，不能判断是否值得推广" },
     { label: "功效依据", pass: product.category === "其他日用品" || Boolean(product.proof) || !/抗菌|抑菌|医用|治疗|大吸量/.test(`${product.title}${product.scene}`), detail: product.proof || "没有证明时，不使用功效承诺" },
     { label: "消费者问题", pass: Boolean(product.pain.trim()), detail: product.pain || "至少填写一个消费者顾虑或竞品差评" },
   ];
   const preparation = Math.round(checks.filter((item) => item.pass).length / checks.length * 100);
 
-  const skuCards = useMemo(() => {
-    const price = n(product.price);
-    const cost = n(product.cost) + n(product.shipping);
-    if (!price) return [];
+  const feeRate = Math.min(50, n(product.feeRate)) / 100;
+  const targetAdCost = n(product.adCost);
+  const targetProfit = n(product.targetProfit);
+  const extraShipping = n(product.extraShipping);
+  const currentContribution = n(product.price) * (1 - feeRate) - n(product.cost) - n(product.shipping) - targetAdCost;
+  const pricingProfitTarget = product.targetProfit ? targetProfit : Math.max(0, currentContribution);
+  const pricePlans = useMemo(() => {
+    const unitCost = n(product.cost);
+    const baseShipping = n(product.shipping);
+    const fee = Math.min(50, n(product.feeRate)) / 100;
+    const denominator = Math.max(0.5, 1 - fee);
+    if (!unitCost) return [];
     return [
-      { type: "体验装", price: money(Math.max(cost, price * 0.58)), role: "降低首次购买门槛；不能低于真实履约成本" },
-      { type: "主推装", price: money(price), role: "商品页与直播间重点展示，规格最清楚" },
-      { type: "囤货装", price: money(Math.max(cost * 1.8, price * 1.75)), role: "用组合装提高客单价，突出每包/每片单价" },
-    ];
-  }, [product.cost, product.price, product.shipping]);
+      { type: "引流装", quantity: 1, role: "降低首次购买门槛，先验证点击和成交" },
+      { type: "主推装", quantity: 2, role: "分摊首重运费与推广成本，作为默认选中SKU" },
+      { type: "囤货装", quantity: 3, role: "提高客单价，突出每组单价和节省金额" },
+    ].map((item) => {
+      const fulfilment = unitCost * item.quantity + baseShipping + n(product.extraShipping) * Math.max(0, item.quantity - 1);
+      const profitGoal = product.targetProfit ? n(product.targetProfit) : Math.max(0, n(product.price) * (1 - fee) - unitCost - baseShipping - n(product.adCost));
+      const floor = (fulfilment + n(product.adCost) + profitGoal) / denominator;
+      const testPrice = Math.max(floor, Math.ceil(floor) - 0.1);
+      return { ...item, floor, testPrice, unitPrice: testPrice / item.quantity };
+    });
+  }, [product.adCost, product.cost, product.extraShipping, product.feeRate, product.price, product.shipping, product.targetProfit]);
 
   const launchPlan = [
     ["发布资格", "补齐类目、规格、数量、成本与售后", `当前准备度 ${preparation}%，未通过项先处理`],
@@ -184,7 +200,7 @@ export default function Home() {
   const nav: { id: View; no: string; label: string }[] = [
     { id: "create", no: "01", label: "创建商品" },
     { id: "audit", no: "02", label: "发布检查" },
-    { id: "package", no: "03", label: "上架包" },
+    { id: "package", no: "03", label: "引流上架指导" },
     { id: "launch", no: "04", label: "7天流量实验" },
     { id: "diagnose", no: "05", label: "真实流量诊断" },
   ];
@@ -220,6 +236,10 @@ export default function Home() {
               <label>售价 *<input type="number" min="0" value={product.price} onChange={(e) => update("price", e.target.value)} placeholder="元"/></label>
               <label>进货成本<input type="number" min="0" value={product.cost} onChange={(e) => update("cost", e.target.value)} placeholder="元"/></label>
               <label>运费和包装<input type="number" min="0" value={product.shipping} onChange={(e) => update("shipping", e.target.value)} placeholder="元"/></label>
+              <label>平台费率<input type="number" min="0" max="50" step="0.1" value={product.feeRate} onChange={(e) => update("feeRate", e.target.value)} placeholder="不知道可留空 %"/></label>
+              <label>目标推广成本/单<input type="number" min="0" step="0.1" value={product.adCost} onChange={(e) => update("adCost", e.target.value)} placeholder="不投放填0 元"/></label>
+              <label>目标净利润/单<input type="number" min="0" step="0.1" value={product.targetProfit} onChange={(e) => update("targetProfit", e.target.value)} placeholder="希望每单赚多少"/></label>
+              <label>每多1组增加运费<input type="number" min="0" step="0.1" value={product.extraShipping} onChange={(e) => update("extraShipping", e.target.value)} placeholder="组合装增量运费"/></label>
               <label>检测或功效证明<input value={product.proof} onChange={(e) => update("proof", e.target.value)} placeholder="没有就留空"/></label>
               <label className="wide">消费者最担心什么？<input value={product.pain} onChange={(e) => update("pain", e.target.value)} placeholder={product.category === "抽纸" ? "如：尺寸太小、掉屑、实际包数不符" : "如：尺码选错、夜间侧漏、退换不方便"}/></label>
             </div>
@@ -230,19 +250,23 @@ export default function Home() {
       </>}
 
       {view === "audit" && <>
-        <section className="audit-hero"><div><span>发布准备度，不是流量预测</span><strong>{preparation}</strong><i>/100</i><p>只衡量当前商品资料是否具备发布和测试条件。</p></div><div><h2>{preparation >= 80 ? "可以进入小范围发布测试" : "先修复未通过项，再争取流量"}</h2><p>平台是否分发仍取决于竞争环境、店铺服务和真实消费者反馈。</p><button onClick={() => setView("package")}>查看完整上架包</button></div></section>
+        <section className="audit-hero"><div><span>发布准备度，不是流量预测</span><strong>{preparation}</strong><i>/100</i><p>只衡量当前商品资料是否具备发布和测试条件。</p></div><div><h2>{preparation >= 80 ? "可以进入小范围发布测试" : "先修复未通过项，再争取流量"}</h2><p>平台是否分发仍取决于竞争环境、店铺服务和真实消费者反馈。</p><button onClick={() => setView("package")}>查看引流上架指导</button></div></section>
         <section className="panel audit-list"><div className="panel-head"><div><span>逐项检查</span><h3>没有证据的项目不会给高分</h3></div><b>{checks.filter((item) => item.pass).length}/{checks.length} 通过</b></div>{checks.map((item) => <article key={item.label} className={item.pass ? "pass" : "fail"}><i>{item.pass ? "✓" : "!"}</i><div><h3>{item.label}</h3><p>{item.detail}</p></div><span>{item.pass ? "已通过" : "需要处理"}</span></article>)}</section>
         <section className="risk-grid"><article className="panel"><span>合规风险</span><ul>{guide.risks.map((item) => <li key={item}>{item}</li>)}</ul></article><article className="panel"><span>优先修复顺序</span><ol>{checks.filter((item) => !item.pass).map((item) => <li key={item.label}>{item.label}：{item.detail}</li>)}</ol>{checks.every((item) => item.pass) && <p>基础条件已齐，下一步用真实曝光和订单验证。</p>}</article></section>
       </>}
 
       {view === "package" && <>
-        <section className="package-intro"><div><span>一套可执行上架包</span><h2>{product.category} · {product.platform || "待选择平台"}</h2><p>以下内容由商品事实和品类策略组合；发布前仍需核对平台类目和属性。</p></div><button onClick={() => navigator.clipboard.writeText(titles[0] || "").then(() => flash("主标题已复制"))} disabled={!titles[0]}>复制主标题</button></section>
+        <section className="package-intro"><div><span>基于卖家真实成本的上架指导</span><h2>{product.category} · {product.platform || "待选择平台"}</h2><p>标题、关键词、组合与价格均来自你填写的商品事实和成本目标；建议价是测试起点，不是平台最优价保证。</p></div><button onClick={() => navigator.clipboard.writeText(titles[0] || "").then(() => flash("主标题已复制"))} disabled={!titles[0]}>复制主标题</button></section>
         <section className="package-grid">
           <article className="panel title-options"><span>标题方案</span>{titles.length ? titles.map((title, index) => <div key={title}><b>方案 {String.fromCharCode(65 + index)}</b><p>{title}</p></div>) : <p>先在“创建商品”补齐规格、数量和场景。</p>}<small>建议首发方案A；后续只替换一个标题变量。</small></article>
-          <article className="panel keyword-plan"><span>搜索意图覆盖</span><div>{guide.search.map((word) => <b key={word}>{word}</b>)}</div><p>这些是品类相关词，不代表平台真实搜索量。发布前在平台搜索框核对联想词。</p></article>
+          <article className="panel keyword-plan"><span>搜索意图覆盖</span><div>{keywordIdeas.map((word) => <b key={word}>{word}</b>)}</div><p>根据品类、规格、人群、场景和顾虑组合；不代表平台真实搜索量，发布前需在平台搜索框核对联想词。</p></article>
+        </section>
+        <section className="pricing-guide">
+          <article className="panel price-health"><span>当前单件账</span><h3>{n(product.price) ? money(currentContribution) : "待填写售价"}</h3><p>售价扣除进货、运费、平台费和目标推广成本后的单笔余量。</p><div className={currentContribution >= pricingProfitTarget && currentContribution > 0 ? "healthy" : "risk"}>{!n(product.cost) ? "缺少进货成本，不能指导定价" : currentContribution <= 0 ? "当前售价可能亏损" : currentContribution < pricingProfitTarget ? `低于目标利润 ${money(pricingProfitTarget)}` : "达到当前目标利润"}</div></article>
+          <article className="panel price-formula"><span>计算依据</span><h3>保本与目标价透明计算</h3><p>建议底价 =（商品成本＋履约运费＋目标推广成本＋目标利润）÷（1－平台费率）</p><ul><li>平台费率：{product.feeRate ? `${product.feeRate}%` : "未填写，暂按0计算"}</li><li>目标推广成本：{product.adCost ? money(targetAdCost) : "未填写，暂按0计算"}</li><li>目标净利润：{product.targetProfit ? money(targetProfit) : `${money(pricingProfitTarget)}（沿用当前余量）`}</li><li>组合装增量运费：{product.extraShipping ? `${money(extraShipping)} / 多1组` : "未填写，组合价可能偏低"}</li></ul></article>
         </section>
         <section className="panel image-plan"><div className="panel-head"><div><span>五张商品图结构</span><h3>每张图只解决一个购买问题</h3></div></div><div>{guide.images.map((item, index) => <article key={item}><b>0{index + 1}</b><p>{item}</p></article>)}</div></section>
-        <section className="sku-and-qa"><article className="panel"><span>SKU与客单价结构</span><div className="sku-cards">{skuCards.length ? skuCards.map((item) => <div key={item.type}><b>{item.type}</b><strong>{item.price}</strong><p>{item.role}</p></div>) : <p>填写售价后生成。</p>}</div></article><article className="panel"><span>详情页必须回答</span><ol>{guide.questions.map((item) => <li key={item}>{item}</li>)}</ol></article></section>
+        <section className="sku-and-qa"><article className="panel"><span>组合与建议测试价</span><div className="sku-cards">{pricePlans.length ? pricePlans.map((item) => <div key={item.type}><b>{item.type} · {item.quantity}组</b><strong>{money(item.testPrice)}</strong><small>目标底价 {money(item.floor)} · 每组 {money(item.unitPrice)}</small><p>{item.role}</p></div>) : <p>填写进货成本后生成组合定价。</p>}</div></article><article className="panel"><span>详情页必须回答</span><ol>{guide.questions.map((item) => <li key={item}>{item}</li>)}</ol></article></section>
       </>}
 
       {view === "launch" && <>
